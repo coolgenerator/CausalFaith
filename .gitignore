@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Data and generated experiment outputs
+data/
+results/
+outputs/
+artifacts/
+
+# Large single-cell / benchmark artifacts
+*.h5ad
+*.h5
+*.npz
+*.npy
+*.loom
+*.zarr/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/

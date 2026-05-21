@@ -1,0 +1,35 @@
+{
+  "created_at_utc": "2026-05-21T21:14:31.561348+00:00",
+  "files": [
+    {
+      "bytes": 96572308,
+      "path": "data/processed/k562_essential/cell_metadata.csv",
+      "sha256": "1ba9b350b808d7609eeeddbcae34dafff663ada6baa48c054ab1d64c5b8bb4d6"
+    },
+    {
+      "bytes": 291929,
+      "path": "data/processed/k562_essential/gene_metadata_all_candidates.csv",
+      "sha256": "04391b9da360b67b678a2fdaae67a094e378251a16a94a35e4e9a58b7b72630e"
+    },
+    {
+      "bytes": 36742,
+      "path": "data/processed/k562_essential/gene_subset_300.csv",
+      "sha256": "8cea753efcd6d6abba80efde0d032d64de6a3fcf835dd114547737bfbe28e9dc"
+    },
+    {
+      "bytes": 358969,
+      "path": "data/processed/k562_essential/matched_random_subsets.csv",
+      "sha256": "9a7bbf62bd6d1b1b828c10e8804a89160aa86b8d7841d095ff28ec6d95d61727"
+    },
+    {
+      "bytes": 518,
+      "path": "data/processed/k562_essential/preprocess_summary.json",
+      "sha256": "b3bacb2aa97314bd2320054e65b2df0b48dbb258d38fddbb3a8b1ea6e9685dc6"
+    },
+    {
+      "bytes": 1176154943,
+      "path": "data/processed/k562_essential/processed_300_gene_subset.h5ad",
+      "sha256": "e8a4590fa709c7daca97666d34ab7bd77664cfebe16ffb9f5e11c1ebb88caeee"
+    }
+  ]
+}

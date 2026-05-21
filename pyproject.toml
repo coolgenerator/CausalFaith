@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causalfaith"
+version = "0.1.0"
+description = "Preprocessing and sensitivity scaffolding for epsilon-interventional faithfulness on CausalBench data."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "anndata>=0.10",
+  "numpy>=1.24,<2",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "pyarrow>=14",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+singlecell = [
+  "scanpy>=1.10",
+  "pertpy>=0.10",
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.4",
+]
+benchmark = [
+  "causalbench>=1.1.2",
+]
+
+[tool.setuptools]
+packages = ["causalfaith"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

@@ -1,0 +1,10 @@
+dataset: k562_essential
+output_dir: data/processed/k562_essential
+subset_size: 300
+min_counts: 500
+min_genes: 200
+max_pct_mt: 20.0
+min_cells_per_perturbation: 50
+random_subset_count: 20
+random_seed: 13
+
