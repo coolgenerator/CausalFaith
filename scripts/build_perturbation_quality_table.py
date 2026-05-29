@@ -147,7 +147,7 @@ def plot_kd_vs_cellcycle(df: pd.DataFrame, out_path: Path) -> None:
     )
     bonferroni = 0.05 / max(len(sub), 1)
     plt.axhline(-np.log10(bonferroni), color="red", linestyle="--",
-                label=f"Bonferroni 0.05 / n")
+                label="Bonferroni 0.05 / n")
     plt.xlabel("KD residual ratio")
     plt.ylabel("-log10(p) for phase shift")
     plt.title("KD efficiency vs cell-cycle disruption (per perturbation)")

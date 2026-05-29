@@ -6,7 +6,6 @@ from pathlib import Path
 
 import anndata as ad
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 from causalfaith.confounding import (
