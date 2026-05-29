@@ -1,0 +1,21 @@
+{
+  "n_perturbations": 2057,
+  "status_counts": {
+    "kd_unmeasurable": 1749,
+    "full": 300,
+    "insufficient": 8
+  },
+  "kd_stratum_counts": {
+    "target_not_measured": 1757,
+    "strong": 138,
+    "medium": 115,
+    "weak": 47
+  },
+  "batch_stratum_counts": {
+    "low": 683,
+    "high": 683,
+    "medium": 683,
+    "undefined": 8
+  },
+  "n_cellcycle_phase_shifted": 337
+}
