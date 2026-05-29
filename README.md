@@ -3,11 +3,13 @@
 Data pipeline for testing epsilon-interventional faithfulness on real
 CausalBench / Replogle Perturb-seq data.
 
-This repository currently focuses on the reproducible data layer:
+This repository currently focuses on a reproducible data and diagnostics layer:
 
 - downloading and caching CausalBench/Replogle K562 and RPE1 data;
 - preprocessing Replogle K562-essential and RPE1 screens;
 - construction of a defensible 300-gene working subset;
+- Module A faithfulness matrix computation on raw and residualized expression;
+- Module B intervention-quality and confounding diagnostics;
 - metadata outputs that Modules A-C can use without changing QC or gene-set
   choices.
 
@@ -104,6 +106,116 @@ The main outputs are:
 
 Use `--write-full` only if you really need the full QC-filtered AnnData; it can
 be many gigabytes.
+
+## Integrated Analysis Workflow
+
+Run the analysis modules after the K562 preprocessing step has produced
+`data/processed/k562_essential/processed_300_gene_subset.h5ad` and
+`data/processed/k562_essential/gene_subset_300.csv`.
+
+### Module A: faithfulness matrices
+
+Module A computes Wasserstein-1 faithfulness scores for perturbation-gene pairs,
+using both raw log-normalized expression and expression residualized against
+available technical covariates.
+
+```bash
+python scripts/run_faithfulness.py \
+  --processed-dir data/processed/k562_essential \
+  --output-dir results/faithfulness
+```
+
+Main outputs:
+
+- `F_raw_I1.csv`, `F_raw_I2.csv`: faithfulness matrices on the two stratified folds.
+- `F_residualized_I1.csv`, `F_residualized_I2.csv`: covariate-residualized matrices.
+- `faithfulness_summary.json`: distribution summaries for each matrix.
+- `top_edges_*.csv`: highest-scoring perturbation-gene pairs.
+- `diagnostic_plots/`: histograms, epsilon curves, and heatmaps.
+
+### Module B: intervention quality and confounding diagnostics
+
+Module B quantifies knockdown strength, batch imbalance, and cell-cycle bias.
+
+```bash
+python scripts/run_intervention_quality.py \
+  --processed-dir data/processed/k562_essential \
+  --output-dir results/diagnostics
+```
+
+Cell-cycle scoring uses the full raw K562 matrix and streams chunks to avoid
+materializing the full normalized matrix in memory:
+
+```bash
+python scripts/run_cell_cycle_scoring.py \
+  --raw-h5ad data/causalbench/k562.h5ad \
+  --output-csv data/processed/k562_essential/cell_cycle_scores.csv
+```
+
+Then join the cell-cycle scores to the processed metadata and compute
+confounding diagnostics:
+
+```bash
+python scripts/run_confounding.py \
+  --processed-dir data/processed/k562_essential \
+  --cellcycle-csv data/processed/k562_essential/cell_cycle_scores.csv \
+  --output-dir results/diagnostics
+```
+
+Finally, assemble the per-perturbation diagnostic table:
+
+```bash
+python scripts/build_perturbation_quality_table.py \
+  --diagnostics-dir results/diagnostics
+```
+
+Main outputs:
+
+- `kd_efficiency.csv`: per-perturbation knockdown efficiency and KD strata.
+- `batch_divergence.csv`: Jensen-Shannon batch divergence against controls.
+- `cellcycle_bias.csv`: phase-shift p-values and cell-cycle score differences.
+- `perturbation_quality_table.csv`: joined master table with `diag_` columns.
+- `plots/`: marginal and joint diagnostic figures.
+
+The integration branch includes a small committed snapshot under
+`results/diagnostics/` for review. New generated outputs still belong under
+ignored paths such as `results/` or `data/` unless the team explicitly decides
+to commit a reproducible artifact.
+
+## Workflow Quality Checks
+
+Before opening or updating a PR, run the checks that match the change size.
+
+For lightweight code and documentation changes:
+
+```bash
+python -m compileall causalfaith scripts
+python -m ruff check causalfaith scripts
+```
+
+For package and import sanity:
+
+```bash
+python -m pip install -e ".[dev,benchmark]"
+python - <<'PY'
+import causalfaith.faithfulness
+import causalfaith.intervention_quality
+import causalfaith.confounding
+
+print("module import check passed")
+PY
+```
+
+For data workflow quality, prefer a staged check instead of rerunning the most
+expensive steps first:
+
+1. Verify preprocessing outputs with the shape and manifest checks above.
+2. Run Module A with `--max-genes 20` to validate the faithfulness path quickly.
+3. Run `run_intervention_quality.py` on the processed subset.
+4. Run the full cell-cycle scoring only when the raw K562 `.h5ad` is available
+   and the machine has enough memory for chunked dense slices.
+5. Rebuild `perturbation_quality_table.csv` and confirm row counts, missing
+   values, and diagnostic strata in the summary JSON files.
 
 ### Other data options
 

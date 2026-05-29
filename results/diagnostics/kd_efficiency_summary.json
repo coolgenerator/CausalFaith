@@ -1,0 +1,24 @@
+{
+  "n_total": 2057,
+  "stratum_counts": {
+    "target_not_measured": 1757,
+    "strong": 138,
+    "medium": 115,
+    "weak": 47
+  },
+  "ratio_mean": 0.2867017795853392,
+  "ratio_median": 0.2230261249110792,
+  "ratio_q25": 0.13270538200105572,
+  "ratio_q75": 0.3879113082862499,
+  "ratio_min": 0.03568402837377317,
+  "ratio_max": 1.0540763842344574,
+  "config": {
+    "perturb_col": "perturbation",
+    "control_label": "non-targeting",
+    "counts_col": "ncounts",
+    "target_sum": 10000.0,
+    "min_cells": 10,
+    "strong_threshold": 0.2,
+    "weak_threshold": 0.5
+  }
+}

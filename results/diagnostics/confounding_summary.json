@@ -1,0 +1,22 @@
+{
+  "batch": {
+    "n_total": 2057,
+    "n_valid": 2049,
+    "js_mean": 0.11895335031786237,
+    "js_median": 0.08897401266144049,
+    "js_q25": 0.05290999244127966,
+    "js_q75": 0.149469251451361,
+    "js_q90": 0.24729212868505168,
+    "js_max": 0.6507517140787381
+  },
+  "cellcycle": {
+    "n_total": 2057,
+    "n_valid": 2049,
+    "bonferroni_threshold": 2.440214738897023e-05,
+    "n_phase_shifted_bonferroni": 337,
+    "s_score_diff_median": -0.008489564411171723,
+    "g2m_score_diff_median": -0.009335001408359501,
+    "s_score_diff_max_abs": 0.2106347413054949,
+    "g2m_score_diff_max_abs": 0.18573035364028034
+  }
+}
