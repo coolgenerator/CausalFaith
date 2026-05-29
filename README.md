@@ -1,17 +1,18 @@
+
 # CausalFaith
 
 Data pipeline for testing epsilon-interventional faithfulness on real
 CausalBench / Replogle Perturb-seq data.
 
-This repository currently focuses on a reproducible data and diagnostics layer:
+This repository covers the full reproducible analysis pipeline:
 
 - downloading and caching CausalBench/Replogle K562 and RPE1 data;
 - preprocessing Replogle K562-essential and RPE1 screens;
 - construction of a defensible 300-gene working subset;
-- Module A faithfulness matrix computation on raw and residualized expression;
-- Module B intervention-quality and confounding diagnostics;
-- metadata outputs that Modules A-C can use without changing QC or gene-set
-  choices.
+- Module A: faithfulness matrix computation on raw and residualized expression;
+- Module B: intervention-quality and confounding diagnostics;
+- Module C: causal discovery methods (PC, GES, GIES, FCI, GRNBoost, MeanDifference);
+- Module C: cross-fitting correlation and stratified analysis.
 
 ## Quick Start
 
@@ -182,6 +183,72 @@ The integration branch includes a small committed snapshot under
 ignored paths such as `results/` or `data/` unless the team explicitly decides
 to commit a reproducible artifact.
 
+### Module C: causal discovery methods
+
+Module C part 1 runs six causal discovery methods across three training regimes
+and writes standardised edge lists for the cross-fitting analysis.
+
+```bash
+# Smoke test — fast methods only
+python scripts/run_methods.py \
+  --methods meandifference ges \
+  --regimes observational \
+  --output-dir results/methods
+
+# Full run (all methods × regimes, with fold-split files for cross-fitting)
+python scripts/run_methods.py \
+  --processed-dir data/processed/k562_essential \
+  --fold-assignment results/faithfulness/fold_assignment.csv \
+  --output-dir results/methods \
+  --fold-split \
+  --n-estimators 100
+```
+
+Key parameters:
+
+- `--methods`: subset of `grnboost meandifference ges pc gies fci` (default: all).
+- `--regimes`: subset of `observational partial_interventional interventional` (default: all).
+- `--fold-split`: also produce `{method}_{regime}_I1_edges.csv` / `_I2_edges.csv` for cross-fitting.
+- `--n-estimators`: GRNBoost trees per gene (default 500; use 100 for fast runs).
+- `--n-jobs`: parallel workers for GRNBoost ExtraTrees (default 4).
+
+Note: FCI on 300 genes is slow. Run it last or omit it from initial runs.
+
+Main outputs (one file per method × regime):
+
+- `results/methods/{method}_{regime}_edges.csv`: columns `source_gene, target_gene, score`.
+
+### Module C: cross-fitting and stratified analysis
+
+Module C part 2 joins the faithfulness matrices, method edge lists, and
+perturbation quality diagnostics to produce the final correlation and
+stratified comparison tables.
+
+Requires:
+- `results/faithfulness/` from Module A
+- `results/methods/` from Module C part 1
+- `results/diagnostics/perturbation_quality_table.csv` from Module B
+- Ground truth edge files (ChIP-Atlas, CORUM, StringDB) in `--gt-dir`
+
+```bash
+python scripts/run_crossfit.py \
+  --faithfulness-dir  results/faithfulness \
+  --methods-dir       results/methods \
+  --diagnostics-dir   results/diagnostics \
+  --gt-dir            data/causalbench/evaluation_resources \
+  --processed-dir     data/processed/k562_essential \
+  --output-dir        results/crossfit
+```
+
+Main outputs:
+
+- `results/crossfit/correlation_table.csv`: per-method Spearman and partial Spearman
+  correlation between faithfulness score and per-edge recall.
+- `results/crossfit/stratified_rankings.csv`: recall by faithfulness / KD-efficiency /
+  batch-divergence stratum for each method × regime.
+- `results/crossfit/sensitivity_raw_vs_resid.json`: raw vs residualized F matrix agreement.
+- `results/crossfit/sensitivity_gene_subsets.csv`: 300-gene vs matched random subsets.
+
 ## Workflow Quality Checks
 
 Before opening or updating a PR, run the checks that match the change size.
@@ -201,6 +268,7 @@ python - <<'PY'
 import causalfaith.faithfulness
 import causalfaith.intervention_quality
 import causalfaith.confounding
+import causalfaith.crossfit
 
 print("module import check passed")
 PY
