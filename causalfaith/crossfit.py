@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import pkg_resources
 from scipy import stats
 from sklearn.linear_model import LinearRegression
 
@@ -13,7 +14,7 @@ from sklearn.linear_model import LinearRegression
 @dataclass
 class CrossFitConfig:
     methods: list[str] = field(default_factory=lambda: [
-        "pc", "fci", "ges", "gies", "dcdi_g", "grnboost",
+        "pc", "fci", "ges", "gies", "meandifference", "grnboost",
     ])
     regimes: list[str] = field(default_factory=lambda: [
         "observational", "partial_interventional", "interventional",
@@ -23,6 +24,8 @@ class CrossFitConfig:
     gt_sources: list[str] = field(default_factory=lambda: [
         "chipAtlas", "corum", "stringdb",
     ])
+    string_min_score: int = 700
+    string_physical_only: bool = True
     results_dir: Path = Path("results/crossfit")
 
 
@@ -34,6 +37,128 @@ def _find_col(columns, candidates: list[str]) -> Optional[str]:
         if cand.lower() in lower_map:
             return lower_map[cand.lower()]
     return None
+
+
+def _add_filtered_edges(
+    edges: set[tuple[str, str]],
+    pairs,
+    gene_set: set[str],
+    bidirectional: bool = False,
+) -> None:
+    for source, target in pairs:
+        source = str(source)
+        target = str(target)
+        if source in gene_set and target in gene_set and source != target:
+            edges.add((source, target))
+        if bidirectional and target in gene_set and source in gene_set and source != target:
+            edges.add((target, source))
+
+
+def _load_chipseq_edges(gene_set: set[str]) -> set[tuple[str, str]]:
+    """Load the packaged K562 ChIP-seq edge resource from CausalBench."""
+    out: set[tuple[str, str]] = set()
+    try:
+        handle = pkg_resources.resource_stream(
+            "causalscbench.data_access", "data/K562_ChipSeq.csv"
+        )
+        with handle:
+            df = pd.read_csv(handle)
+    except (FileNotFoundError, ModuleNotFoundError):
+        return out
+
+    src = _find_col(df.columns, ["source", "source_gene", "regulator"])
+    tgt = _find_col(df.columns, ["target", "target_gene", "regulated"])
+    if src is None or tgt is None:
+        return out
+    _add_filtered_edges(out, zip(df[src], df[tgt]), gene_set)
+    return out
+
+
+def _load_corum_edges(gt_dir: Path, gene_set: set[str]) -> set[tuple[str, str]]:
+    """Load CORUM complex co-memberships as bidirectional gene-gene edges."""
+    out: set[tuple[str, str]] = set()
+    candidates = list(gt_dir.glob("*corum*")) + list(gt_dir.glob("*Complexes*"))
+    for path in candidates:
+        try:
+            compression = "zip" if path.suffix == ".zip" else None
+            df = pd.read_csv(path, sep="\t", compression=compression)
+        except Exception:
+            continue
+        member_col = _find_col(df.columns, ["subunits(Gene name)", "subunits_gene_name"])
+        if member_col is None:
+            continue
+        for raw_members in df[member_col].dropna().astype(str):
+            members = [gene for gene in raw_members.split(";") if gene in gene_set]
+            for i, source in enumerate(members):
+                for target in members[:i] + members[i + 1:]:
+                    if source != target:
+                        out.add((source, target))
+    return out
+
+
+def _load_string_edges(
+    gt_dir: Path,
+    gene_set: set[str],
+    min_score: int = 0,
+    physical_only: bool = False,
+    score_col: str = "combined_score",
+) -> set[tuple[str, str]]:
+    """Load STRING network/physical links and map STRING protein IDs to symbols."""
+    info_path = next(iter(gt_dir.glob("*protein.info*.gz")), None)
+    if info_path is None:
+        return set()
+
+    info = pd.read_csv(info_path, sep="\t", compression="gzip")
+    id_col = _find_col(info.columns, ["#string_protein_id", "string_protein_id", "protein_id"])
+    gene_col = _find_col(info.columns, ["preferred_name", "gene_name", "symbol"])
+    if id_col is None or gene_col is None:
+        return set()
+
+    protein_to_gene = {
+        str(row[id_col]): str(row[gene_col])
+        for _, row in info.iterrows()
+        if str(row[gene_col]) in gene_set
+    }
+    interesting_ids = set(protein_to_gene)
+    if not interesting_ids:
+        return set()
+
+    out: set[tuple[str, str]] = set()
+    link_paths = (
+        list(gt_dir.glob("*protein.physical.links*.gz"))
+        if physical_only
+        else [
+            *gt_dir.glob("*protein.links*.gz"),
+            *gt_dir.glob("*protein.physical.links*.gz"),
+        ]
+    )
+    for path in link_paths:
+        try:
+            chunks = pd.read_csv(
+                path,
+                sep=" ",
+                compression="gzip",
+                usecols=lambda col: col in {"protein1", "protein2", score_col},
+                chunksize=500_000,
+            )
+        except Exception:
+            continue
+        for chunk in chunks:
+            if score_col not in chunk.columns:
+                continue
+            mask = (
+                chunk["protein1"].isin(interesting_ids)
+                & chunk["protein2"].isin(interesting_ids)
+                & pd.to_numeric(chunk[score_col], errors="coerce").ge(min_score)
+            )
+            if not mask.any():
+                continue
+            pairs = (
+                (protein_to_gene[p1], protein_to_gene[p2])
+                for p1, p2 in chunk.loc[mask, ["protein1", "protein2"]].itertuples(index=False)
+            )
+            _add_filtered_edges(out, pairs, gene_set, bidirectional=True)
+    return out
 
 
 # ── data loaders ──────────────────────────────────────────────────────────────
@@ -75,6 +200,8 @@ def load_ground_truth_edges(
     gt_dir: Path,
     genes: list[str],
     sources: Optional[list[str]] = None,
+    string_min_score: int = 0,
+    string_physical_only: bool = False,
 ) -> set[tuple[str, str]]:
     """
     Load ground truth edges from CausalBench evaluation resource directory,
@@ -86,14 +213,67 @@ def load_ground_truth_edges(
     Raises FileNotFoundError if no matching files are found — download evaluation
     resources with: python scripts/download_causalbench_data.py --with-evaluation-resources
     """
+    edge_sets = load_ground_truth_edge_sets(
+        gt_dir,
+        genes,
+        sources,
+        string_min_score=string_min_score,
+        string_physical_only=string_physical_only,
+    )
+    edges: set[tuple[str, str]] = set()
+    for source_edges in edge_sets.values():
+        edges.update(source_edges)
+    if not edge_sets:
+        patterns = sources or ["chipAtlas", "corum", "stringdb", "ground_truth"]
+        raise FileNotFoundError(
+            f"No ground truth files found in {gt_dir} for patterns {patterns}.\n"
+            "Download with: python scripts/download_causalbench_data.py "
+            "--with-evaluation-resources"
+        )
+    return edges
+
+
+def load_ground_truth_edge_sets(
+    gt_dir: Path,
+    genes: list[str],
+    sources: Optional[list[str]] = None,
+    string_min_score: int = 0,
+    string_physical_only: bool = False,
+) -> dict[str, set[tuple[str, str]]]:
+    """Load source-specific ground truth edge sets, filtered to the provided genes."""
     gt_dir = Path(gt_dir)
     gene_set = set(genes)
-    edges: set[tuple[str, str]] = set()
+    edge_sets: dict[str, set[tuple[str, str]]] = {}
 
     patterns = sources or ["chipAtlas", "corum", "stringdb", "ground_truth"]
-    found_any = False
 
     for pattern in patterns:
+        pattern_lower = pattern.lower()
+
+        if pattern_lower in {"chipatlas", "chipseq", "chip-seq"}:
+            chip_edges = _load_chipseq_edges(gene_set)
+            if chip_edges:
+                edge_sets["chipAtlas"] = chip_edges
+            continue
+
+        if pattern_lower == "corum":
+            corum_edges = _load_corum_edges(gt_dir, gene_set)
+            if corum_edges:
+                edge_sets["corum"] = corum_edges
+            continue
+
+        if pattern_lower in {"stringdb", "string", "string_network"}:
+            string_edges = _load_string_edges(
+                gt_dir,
+                gene_set,
+                min_score=string_min_score,
+                physical_only=string_physical_only,
+            )
+            if string_edges:
+                edge_sets["stringdb"] = string_edges
+            continue
+
+        fallback_edges: set[tuple[str, str]] = set()
         for f in sorted(gt_dir.glob(f"*{pattern}*")):
             if f.suffix not in (".csv", ".tsv"):
                 continue
@@ -106,18 +286,11 @@ def load_ground_truth_edges(
             tgt = _find_col(df.columns, ["target", "gene2", "to", "target_gene", "regulated"])
             if src is None or tgt is None:
                 continue
-            for s, t in zip(df[src].astype(str), df[tgt].astype(str)):
-                if s in gene_set and t in gene_set and s != t:
-                    edges.add((s, t))
-            found_any = True
+            _add_filtered_edges(fallback_edges, zip(df[src], df[tgt]), gene_set)
+        if fallback_edges:
+            edge_sets[pattern] = fallback_edges
 
-    if not found_any:
-        raise FileNotFoundError(
-            f"No ground truth files found in {gt_dir} for patterns {patterns}.\n"
-            "Download with: python scripts/download_causalbench_data.py "
-            "--with-evaluation-resources"
-        )
-    return edges
+    return edge_sets
 
 
 def load_perturbation_quality(path: Path) -> pd.DataFrame:

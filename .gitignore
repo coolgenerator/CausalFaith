@@ -24,6 +24,12 @@ results/
 outputs/
 artifacts/
 
+# Generated presentation/export artifacts
+*.pptx
+*.ppt
+*.key
+~$*
+
 # Large single-cell / benchmark artifacts
 *.h5ad
 *.h5

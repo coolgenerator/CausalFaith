@@ -218,6 +218,49 @@ Main outputs (one file per method × regime):
 
 - `results/methods/{method}_{regime}_edges.csv`: columns `source_gene, target_gene, score`.
 
+### Module C: high-confidence benchmark and robustness pilot
+
+The repository includes an evaluation layer for high-confidence 50-gene
+benchmarks against ChIP-Atlas, CORUM, STRING, and pooled references. The current
+robustness pilot runs 3 high-confidence 50-gene subsets across 3 light parameter
+configs for PC, FCI, and GRNBoost, comparing observational and interventional
+training regimes.
+
+```bash
+python scripts/build_benchmark_subsets.py \
+  --processed-dir data/processed/k562_essential \
+  --diagnostics-dir results/diagnostics \
+  --gt-dir data/causalbench \
+  --output-dir results/robustness_50_hc \
+  --n-subsets 3 \
+  --n-genes 50 \
+  --string-min-score 700 \
+  --string-physical-only
+
+python scripts/run_robustness_pilot.py \
+  --subsets-dir results/robustness_50_hc \
+  --processed-dir data/processed/k562_essential \
+  --gt-dir data/causalbench \
+  --methods pc fci grnboost \
+  --regimes observational interventional \
+  --max-obs-cells 500 \
+  --max-all-cells 1000 \
+  --n-bootstrap 200 \
+  --n-jobs 4
+
+python scripts/summarize_robustness_grid.py \
+  --subsets-dir results/robustness_50_hc
+```
+
+Current pilot result: interventional data improves AUPRC consistently on CORUM,
+pooled, and STRING references across the 9 subset/config runs, with the largest
+effect for GRNBoost. Mean CORUM AUPRC uplift is +0.0538 for GRNBoost, +0.0167
+for FCI, and +0.0083 for PC. ChIP-Atlas is too sparse in these 50-gene subsets
+to serve as the primary readout.
+
+See [50-Gene High-Confidence Robustness Pilot](docs/robustness_50_hc.md) for the
+full scope, result tables, caveats, and reproduction commands.
+
 ### Module C: cross-fitting and stratified analysis
 
 Module C part 2 joins the faithfulness matrices, method edge lists, and

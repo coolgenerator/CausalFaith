@@ -65,6 +65,44 @@ def load_adata(processed_dir: Path) -> ad.AnnData:
     return adata
 
 
+def read_gene_list(path: Path) -> list[str]:
+    """Read a benchmark gene list from CSV or plain text."""
+    if path.suffix.lower() == ".csv":
+        df = pd.read_csv(path)
+        gene_col = next(
+            (c for c in ["gene", "gene_symbol", "symbol", "perturbation"] if c in df.columns),
+            df.columns[0],
+        )
+        return df[gene_col].dropna().astype(str).tolist()
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def subset_genes(
+    adata: ad.AnnData,
+    max_method_genes: int,
+    gene_list_path: Optional[Path] = None,
+) -> ad.AnnData:
+    """Optionally limit method runners to an explicit gene list or first N genes."""
+    if gene_list_path is not None:
+        genes = read_gene_list(gene_list_path)
+        missing = [gene for gene in genes if gene not in adata.var_names]
+        if missing:
+            raise ValueError(
+                f"{gene_list_path} contains {len(missing)} genes missing from AnnData; "
+                f"first missing genes: {missing[:10]}"
+            )
+        print(f"Limiting method runners to {len(genes)} genes from {gene_list_path}.")
+        return adata[:, genes].copy()
+    if max_method_genes <= 0 or max_method_genes >= adata.n_vars:
+        return adata
+    print(f"Limiting method runners to first {max_method_genes} genes.")
+    return adata[:, :max_method_genes].copy()
+
+
 def get_expression(adata: ad.AnnData, cell_mask: np.ndarray) -> np.ndarray:
     """Return log1p expression matrix (cells × genes) as dense float32."""
     X = adata.layers["log1p"][cell_mask]
@@ -78,6 +116,9 @@ def prepare_data(
     regime: str,
     fold_cells: Optional[pd.Index] = None,
     max_obs_cells: int = 10_000,
+    max_all_cells: int = 0,
+    max_cells_per_env: int = 0,
+    max_intervention_envs: int = 0,
     seed: int = 42,
 ) -> dict:
     """
@@ -107,9 +148,13 @@ def prepare_data(
             rng.choice(ctrl_idx, size=max_obs_cells, replace=False)
         )
 
+    if max_all_cells and max_all_cells > 0 and len(all_idx) > max_all_cells:
+        all_idx = pd.Index(
+            rng.choice(all_idx, size=max_all_cells, replace=False)
+        )
+
     ctrl_mask = adata.obs.index.isin(ctrl_idx)
     all_mask = adata.obs.index.isin(all_idx)
-    pert_mask = adata.obs.index.isin(obs.index[obs["perturbation"] != CONTROL_LABEL])
 
     X_obs = get_expression(adata, ctrl_mask)
     X_all = get_expression(adata, all_mask)
@@ -120,13 +165,19 @@ def prepare_data(
     environments = [(X_obs, [])]  # (expression_matrix, intervention_target_indices)
 
     # only use perturbations whose target is in the 300-gene subset
-    measurable_perts = sorted(
-        set(pert_obs["perturbation"].unique()) & set(genes)
-    )
+    pert_set = set(pert_obs["perturbation"].unique())
+    measurable_perts = [gene for gene in genes if gene in pert_set]
+    if max_intervention_envs and max_intervention_envs > 0:
+        measurable_perts = measurable_perts[:max_intervention_envs]
     for pert_gene in measurable_perts:
-        p_mask = adata.obs.index.isin(
-            pert_obs.index[pert_obs["perturbation"] == pert_gene]
-        )
+        pert_cells = pd.Index(pert_obs.index[pert_obs["perturbation"] == pert_gene])
+        if len(pert_cells) < 5:
+            continue
+        if max_cells_per_env and max_cells_per_env > 0 and len(pert_cells) > max_cells_per_env:
+            pert_cells = pd.Index(
+                rng.choice(pert_cells, size=max_cells_per_env, replace=False)
+            )
+        p_mask = adata.obs.index.isin(pert_cells)
         if p_mask.sum() < 5:
             continue
         X_p = get_expression(adata, p_mask)
@@ -267,7 +318,6 @@ def run_mean_difference(
     Pearson correlation (no intervention info available).
     """
     genes = data["genes"]
-    gene_index = {g: k for k, g in enumerate(genes)}
 
     if regime == "observational":
         # Pearson correlation as proxy
@@ -316,12 +366,12 @@ def run_pc(X: np.ndarray, genes: list[str], alpha: float = 0.05) -> pd.DataFrame
     return causallearn_graph_to_edges(cg.G.graph, genes)
 
 
-def run_ges(X: np.ndarray, genes: list[str]) -> pd.DataFrame:
+def run_ges(X: np.ndarray, genes: list[str], max_p: int | None = None) -> pd.DataFrame:
     """GES (Greedy Equivalence Search). Observational BIC score."""
     from causallearn.search.ScoreBased.GES import ges as _ges
 
-    print(f"    Running GES on {X.shape[0]} cells × {X.shape[1]} genes")
-    rec = _ges(X, score_func="local_score_BIC", maxP=None)
+    print(f"    Running GES on {X.shape[0]} cells × {X.shape[1]} genes, maxP={max_p}")
+    rec = _ges(X, score_func="local_score_BIC", maxP=max_p)
     return causallearn_graph_to_edges(rec["G"].graph, genes)
 
 
@@ -337,7 +387,7 @@ def run_fci(X: np.ndarray, genes: list[str], alpha: float = 0.05) -> pd.DataFram
     return causallearn_graph_to_edges(g.graph, genes)
 
 
-def run_gies(data: dict) -> pd.DataFrame:
+def run_gies(data: dict, phases: list[str] | None = None, iterate: bool = True) -> pd.DataFrame:
     """
     GIES (Greedy Interventional Equivalence Search).
     Uses all available intervention environments.
@@ -356,7 +406,10 @@ def run_gies(data: dict) -> pd.DataFrame:
           f"({sum(1 for e in environments if not e[1])} observational, "
           f"{sum(1 for e in environments if e[1])} interventional)")
 
-    dag_adj, _ = _gies.fit_bic(gies_data, gies_I)
+    phases = phases or ["forward", "backward", "turning"]
+    print(f"    GIES phases={phases}, iterate={iterate}")
+
+    dag_adj, _ = _gies.fit_bic(gies_data, gies_I, phases=phases, iterate=iterate)
 
     return adj_matrix_to_edges(dag_adj, genes)
 
@@ -371,6 +424,9 @@ def run_one(
     alpha: float,
     n_jobs: int,
     n_estimators: int = 500,
+    ges_max_p: int | None = None,
+    gies_phases: list[str] | None = None,
+    gies_iterate: bool = True,
 ) -> pd.DataFrame:
     """Run a single method × regime combination."""
     X = select_X(data, regime)
@@ -385,7 +441,7 @@ def run_one(
         return run_pc(X, data["genes"], alpha=alpha)
 
     elif method == "ges":
-        return run_ges(X, data["genes"])
+        return run_ges(X, data["genes"], max_p=ges_max_p)
 
     elif method == "fci":
         return run_fci(X, data["genes"], alpha=alpha)
@@ -394,8 +450,8 @@ def run_one(
         if regime != "interventional":
             # GIES without intervention info = GES
             print(f"    GIES in {regime} mode → running as GES (no intervention info)")
-            return run_ges(X, data["genes"])
-        return run_gies(data)
+            return run_ges(X, data["genes"], max_p=ges_max_p)
+        return run_gies(data, phases=gies_phases, iterate=gies_iterate)
 
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -431,20 +487,40 @@ def main() -> None:
                         help="Also produce I1/I2 fold-specific edge files for cross-fitting")
     parser.add_argument("--max-obs-cells", type=int, default=10_000,
                         help="Max control cells to use for observational methods (default: 10000)")
+    parser.add_argument("--max-all-cells", type=int, default=0,
+                        help="Max all-regime cells for graph-search methods; 0 uses all cells")
+    parser.add_argument("--max-cells-per-env", type=int, default=0,
+                        help="Max cells per GIES intervention environment; 0 uses all cells")
+    parser.add_argument("--max-intervention-envs", type=int, default=0,
+                        help="Max GIES intervention environments, in gene-list order; 0 uses all")
+    parser.add_argument("--max-method-genes", type=int, default=0,
+                        help="Limit method runners to first N genes; 0 uses all genes")
+    parser.add_argument("--gene-list", type=Path, default=None,
+                        help="CSV/TXT gene list to use for method runners")
     parser.add_argument("--alpha", type=float, default=0.05,
                         help="Significance level for PC and FCI (default: 0.05)")
     parser.add_argument("--n-jobs", type=int, default=4,
                         help="Parallel jobs for GRNBoost (default: 4)")
     parser.add_argument("--n-estimators", type=int, default=500,
                         help="GRNBoost trees per gene (default: 500; use 100 for fast runs)")
+    parser.add_argument("--ges-max-p", type=int, default=-1,
+                        help="GES max parent set size; -1 uses causal-learn default")
+    parser.add_argument("--gies-phases", nargs="+", default=["forward", "backward", "turning"],
+                        choices=["forward", "backward", "turning"],
+                        help="GIES phases to run (default: forward backward turning)")
+    parser.add_argument("--gies-no-iterate", action="store_true",
+                        help="Run one pass through the requested GIES phases")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    ges_max_p = None if args.ges_max_p < 0 else args.ges_max_p
+    gies_iterate = not args.gies_no_iterate
 
     processed_dir = Path(args.processed_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     adata = load_adata(processed_dir)
+    adata = subset_genes(adata, args.max_method_genes, args.gene_list)
     genes = list(adata.var_names)
     print(f"Genes: {len(genes)}, Cells: {adata.n_obs}")
 
@@ -468,7 +544,11 @@ def main() -> None:
 
         # full-dataset data
         data_full = prepare_data(adata, regime,
-                                  max_obs_cells=args.max_obs_cells, seed=args.seed)
+                                  max_obs_cells=args.max_obs_cells,
+                                  max_all_cells=args.max_all_cells,
+                                  max_cells_per_env=args.max_cells_per_env,
+                                  max_intervention_envs=args.max_intervention_envs,
+                                  seed=args.seed)
 
         # fold-specific data (if requested)
         data_folds: dict[str, dict] = {}
@@ -477,7 +557,11 @@ def main() -> None:
                 fold_cells = fold_assignment.index[fold_assignment["fold"] == fold]
                 data_folds[fold] = prepare_data(
                     adata, regime, fold_cells=fold_cells,
-                    max_obs_cells=args.max_obs_cells, seed=args.seed,
+                    max_obs_cells=args.max_obs_cells,
+                    max_all_cells=args.max_all_cells,
+                    max_cells_per_env=args.max_cells_per_env,
+                    max_intervention_envs=args.max_intervention_envs,
+                    seed=args.seed,
                 )
 
         for method in args.methods:
@@ -488,7 +572,10 @@ def main() -> None:
             try:
                 # full-dataset run
                 edges = run_one(method, regime, adata, data_full, args.alpha, args.n_jobs,
-                               n_estimators=args.n_estimators)
+                               n_estimators=args.n_estimators,
+                               ges_max_p=ges_max_p,
+                               gies_phases=args.gies_phases,
+                               gies_iterate=gies_iterate)
                 save_edges(edges, output_dir, method, regime)
 
                 # fold-specific runs
@@ -496,7 +583,10 @@ def main() -> None:
                     print(f"    Fold {fold}")
                     edges_fold = run_one(method, regime, adata, data_fold,
                                          args.alpha, args.n_jobs,
-                                         n_estimators=args.n_estimators)
+                                         n_estimators=args.n_estimators,
+                                         ges_max_p=ges_max_p,
+                                         gies_phases=args.gies_phases,
+                                         gies_iterate=gies_iterate)
                     save_edges(edges_fold, output_dir, method, regime, fold=fold)
 
             except Exception as exc:

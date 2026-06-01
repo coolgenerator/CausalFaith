@@ -53,6 +53,52 @@ N_CTRL_PER_GENE = 50
 CHUNK_SIZE = 30_000  # cells per chunk
 
 
+def _marker_overlap(names: np.ndarray) -> int:
+    available = set(names)
+    return len(set(S_GENES) & available) + len(set(G2M_GENES) & available)
+
+
+def _resolve_gene_names(adata: ad.AnnData, gene_symbol_col: str | None) -> np.ndarray:
+    """Return per-column gene symbols used to map marker genes to matrix columns."""
+    var_names = adata.var_names.to_numpy().astype(str)
+    if gene_symbol_col:
+        if gene_symbol_col not in adata.var.columns:
+            raise ValueError(
+                f"Missing --gene-symbol-col '{gene_symbol_col}'. "
+                f"Available var columns: {list(adata.var.columns)}"
+            )
+        names = adata.var[gene_symbol_col].astype(str).to_numpy()
+        print(f"Using gene symbols from var['{gene_symbol_col}'].", flush=True)
+        return names
+
+    if _marker_overlap(var_names) > 0:
+        print("Using gene symbols from var_names.", flush=True)
+        return var_names
+
+    candidates = ["gene_name", "gene_symbol", "symbol", "gene"]
+    best_col = None
+    best_overlap = 0
+    for col in candidates:
+        if col not in adata.var.columns:
+            continue
+        names = adata.var[col].astype(str).to_numpy()
+        overlap = _marker_overlap(names)
+        if overlap > best_overlap:
+            best_col = col
+            best_overlap = overlap
+
+    if best_col is None:
+        print("Using gene symbols from var_names.", flush=True)
+        return var_names
+
+    print(
+        f"Using gene symbols from var['{best_col}'] "
+        f"({best_overlap} cell-cycle markers matched).",
+        flush=True,
+    )
+    return adata.var[best_col].astype(str).to_numpy()
+
+
 def _per_cell_lognormalize_chunk(X_chunk, target_sum: float = 1e4):
     """Per-cell normalize + log1p one chunk.
     Returns a dense float32 array (chunk_cells x genes).
@@ -140,6 +186,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-h5ad", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path, required=True)
+    parser.add_argument("--gene-symbol-col", default=None,
+                        help="Optional adata.var column containing gene symbols.")
     parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -152,7 +200,7 @@ def main() -> None:
     adata = ad.read_h5ad(args.raw_h5ad, backed="r")
     print(f"  shape = {adata.shape}", flush=True)
 
-    gene_names = adata.var_names.to_numpy().astype(str)
+    gene_names = _resolve_gene_names(adata, args.gene_symbol_col)
     available = set(gene_names)
     s_use = [g for g in S_GENES if g in available]
     g2m_use = [g for g in G2M_GENES if g in available]
