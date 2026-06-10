@@ -52,11 +52,12 @@ underwrites GIES identifiability. Even under the most permissive
 interpretation of "approximately perfect", a residual ratio above 0.5
 implies that target expression in perturbed cells exceeds half of control,
 which is far from a point mass at zero. The 47 weak perturbations are
-therefore expected to behave more like soft interventions, consistent with
-the assumptions of DCDI-G. The contrast in Module B between GIES and DCDI-G
-on the strong stratum versus the weak stratum becomes the operational test
-of whether intervention imperfectness explains a portion of the CausalBench
-performance gap.
+therefore expected to behave more like soft interventions. This motivates
+a future comparison between methods that assume ideal interventions and
+methods that explicitly model imperfect or soft interventions. In the current
+project, however, we treat intervention imperfectness mainly as a diagnostic
+failure mode rather than claiming that a completed GIES versus DCDI-G contrast
+explains the CausalBench performance gap.
 
 A secondary observation concerns the relationship between residual ratio
 and control expression. Highly expressed targets such as RPL3, with a
@@ -168,9 +169,9 @@ with three levels:
 - insufficient: fewer than 10 cells, no reliable diagnostic (n = 8)
 
 This status column is the primary entry point for downstream analyses
-that need a quick perturbation filter. Member 5 should restrict the
-imperfect-intervention contrasts (GIES versus DCDI-G in Module B) to
-status = full, and the causal-sufficiency contrasts (PC versus FCI) to
+that need a quick perturbation filter. Downstream analyses of intervention
+quality should restrict knockdown-based comparisons to status = full, while
+causal-sufficiency diagnostics such as PC versus FCI comparisons can use
 status in {full, kd_unmeasurable}.
 
 ## 6. Limitations
