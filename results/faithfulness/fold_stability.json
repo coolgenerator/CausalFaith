@@ -1,0 +1,14 @@
+{
+  "raw": {
+    "fold_a": "I1",
+    "fold_b": "I2",
+    "spearman_rho": 0.7136189679474427,
+    "n_pairs": 90000
+  },
+  "residualized": {
+    "fold_a": "I1",
+    "fold_b": "I2",
+    "spearman_rho": 0.729538253944618,
+    "n_pairs": 90000
+  }
+}
