@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
 ROOT = Path(__file__).resolve().parents[1]
 FDIR = ROOT / "results" / "faithfulness"
+PLOTDIR = FDIR / "diagnostic_plots"
 
 THRESHOLDS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
 FOLDS = ["I1", "I2"]
@@ -97,8 +99,36 @@ def build_threshold_summary() -> dict:
     return out
 
 
+def build_epsilon_self_vs_downstream():
+    """Headline Module A figure: self pairs stay faithful, downstream collapses."""
+    grid = np.linspace(0.0, 0.65, 131)
+    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    styles = {"I1": "-", "I2": "--"}
+    for fold in FOLDS:
+        F = _load(f"F_raw_{fold}")
+        diag, off = _split(F)
+        self_curve = [np.mean(diag >= t) for t in grid]
+        down_curve = [np.mean(off >= t) for t in grid]
+        ax.plot(grid, self_curve, styles[fold], color="#16a34a",
+                label=f"self ({fold})")
+        ax.plot(grid, down_curve, styles[fold], color="#dc2626",
+                label=f"downstream ({fold})")
+    for t in (0.2, 0.3):
+        ax.axvline(t, color="gray", lw=0.7, ls=":")
+    ax.set_xlabel("epsilon threshold")
+    ax.set_ylabel("Proportion of pairs with F ≥ epsilon")
+    ax.set_title("Target knockdown is faithful; downstream propagation is weak\n"
+                 "(raw Wasserstein-1; self vs downstream pairs, both folds)")
+    ax.legend(frameon=False, fontsize=8)
+    ax.set_ylim(-0.02, 1.02)
+    fig.tight_layout()
+    fig.savefig(PLOTDIR / "epsilon_curve_self_vs_downstream.png", bbox_inches="tight")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     fs = build_fold_stability()
+    build_epsilon_self_vs_downstream()
     tbl = build_threshold_table()
     summ = build_threshold_summary()
     print("fold_stability:", {k: round(v["spearman_rho"], 4) for k, v in fs.items()})

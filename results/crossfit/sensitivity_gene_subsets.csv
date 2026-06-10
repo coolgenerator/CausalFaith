@@ -1,0 +1,2 @@
+subset,n_genes,mean_faithfulness,median_faithfulness,std_faithfulness
+300_gene_selected,300,0.1495549086945397,0.13280073759800137,0.07401156728958448
