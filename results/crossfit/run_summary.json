@@ -1,0 +1,21 @@
+{
+  "faithfulness_matrices_loaded": {
+    "raw": {
+      "I1": true,
+      "I2": true
+    },
+    "residualized": {
+      "I1": true,
+      "I2": true
+    }
+  },
+  "n_method_edge_files": 18,
+  "n_gt_edges": 9002,
+  "gene_list": null,
+  "n_genes": 300,
+  "string_min_score": 700,
+  "string_physical_only": false,
+  "fallback_manifest": null,
+  "fallback_method_regimes": {},
+  "output_dir": "results/crossfit"
+}

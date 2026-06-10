@@ -1,0 +1,35 @@
+{
+  "per_fold": {
+    "I1": {
+      "self_ge_0.5_pct": 92.67,
+      "self_median": 1.4501501070779648,
+      "downstream_ge_0.2_pct": 22.18,
+      "downstream_ge_0.3_pct": 9.66,
+      "downstream_median": 0.10789699842752502
+    },
+    "I2": {
+      "self_ge_0.5_pct": 92.67,
+      "self_median": 1.4355455508561517,
+      "downstream_ge_0.2_pct": 21.95,
+      "downstream_ge_0.3_pct": 9.63,
+      "downstream_median": 0.10805211025897424
+    }
+  },
+  "fold_averaged": {
+    "self_ge_0.5_pct": 92.67,
+    "self_median": 1.4428,
+    "downstream_ge_0.2_pct": 22.065,
+    "downstream_ge_0.3_pct": 9.645,
+    "downstream_median": 0.108
+  },
+  "thresholds": [
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.4,
+    0.5
+  ]
+}
