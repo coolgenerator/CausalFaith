@@ -26,6 +26,7 @@ from scipy.stats import spearmanr
 ROOT = Path(__file__).resolve().parents[1]
 FDIR = ROOT / "results" / "faithfulness"
 PLOTDIR = FDIR / "diagnostic_plots"
+ASSETS = ROOT / "docs" / "report_assets"
 
 THRESHOLDS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
 FOLDS = ["I1", "I2"]
@@ -126,9 +127,32 @@ def build_epsilon_self_vs_downstream():
     plt.close(fig)
 
 
+def build_kd_strata():
+    """Module B figure: knockdown-efficiency strata among the 300 measurable perturbations."""
+    import json as _json
+    with open(ROOT / "results/diagnostics/kd_efficiency_summary.json") as fh:
+        sc = _json.load(fh)["stratum_counts"]
+    labels = ["strong\n(<0.20)", "medium\n(0.20–0.50)", "weak\n(≥0.50)"]
+    vals = [sc["strong"], sc["medium"], sc["weak"]]
+    total = sum(vals)
+    fig, ax = plt.subplots(figsize=(5.6, 4.2))
+    bars = ax.bar(labels, vals, color=["#16a34a", "#eab308", "#dc2626"])
+    for b, v in zip(bars, vals):
+        ax.text(b.get_x() + b.get_width() / 2, v + 1.5, f"{v}\n{v/total*100:.0f}%",
+                ha="center", va="bottom", fontsize=9)
+    ax.set_ylabel("Number of perturbations")
+    ax.set_title("Knockdown efficiency strata\n(300 KD-measurable perturbations)")
+    ax.set_ylim(0, max(vals) * 1.25)
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(ASSETS / "fig_kd_strata.png", bbox_inches="tight")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     fs = build_fold_stability()
     build_epsilon_self_vs_downstream()
+    build_kd_strata()
     tbl = build_threshold_table()
     summ = build_threshold_summary()
     print("fold_stability:", {k: round(v["spearman_rho"], 4) for k, v in fs.items()})
